@@ -206,7 +206,7 @@ class ComputeLoss:
             t = targets * gain
 
             if nt:
-                # Matches
+                # Matchesiou_t
                 #print("first",t.size())
                 r = t[:, :, 4:6] / anchors[:, None]  # wh ratio
                 j = torch.max(r, 1. / r).max(2)[0] < self.hyp['anchor_t']  # compare

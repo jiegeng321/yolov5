@@ -15,7 +15,7 @@ import cv2
 import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
-
+from pascal_voc_writer import Writer
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # YOLOv5 root directory
 if str(ROOT) not in sys.path:
@@ -29,8 +29,11 @@ from utils.general import apply_classifier, check_img_size, check_imshow, check_
     strip_optimizer, xyxy2xywh
 from utils.plots import Annotator, colors
 from utils.torch_utils import load_classifier, select_device, time_sync
-
-
+import random
+from sklearn.metrics import classification_report
+import pandas as pd
+pd.set_option('display.max_columns', None)
+pd.set_option('display.max_rows', None)
 @torch.no_grad()
 def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
         source=ROOT / 'data/images',  # file/dir/URL/glob, 0 for webcam
@@ -41,6 +44,8 @@ def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
         device='',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
         view_img=False,  # show results
         save_txt=False,  # save results to *.txt
+        save_xml=False,  # save results to *.txt
+        test_pic_level=False,
         save_conf=False,  # save confidences in --save-txt labels
         save_crop=False,  # save cropped prediction boxes
         nosave=False,  # do not save images/videos
@@ -132,7 +137,28 @@ def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
     if pt and device.type != 'cpu':
         model(torch.zeros(1, 3, *imgsz).to(device).type_as(next(model.parameters())))  # run once
     dt, seen = [0.0, 0.0, 0.0], 0
+    if test_pic_level:
+        label_total = []
+        pred_total = []
     for path, img, im0s, vid_cap in dataset:
+        if img is None:continue
+        pred_one = []
+        if test_pic_level:
+            label_one = []
+            # print(path)
+            label_txt = str(Path(path).parent.parent / "labels" /Path(path).with_suffix(".txt").name)
+            #label_txt = str(Path(path).with_suffix(".txt")).replace("images","labels")
+            try:
+                with open(label_txt,"r") as f:
+                    lines = f.readlines()
+            except Exception as e:
+                print(str(e))
+                continue
+            for line in lines:
+                if line:
+                    label_one.append(names[int(line.split(" ")[0])].split("-")[0])
+            #print(label_one)
+
         t1 = time_sync()
         if onnx:
             img = img.astype('float32')
@@ -213,12 +239,26 @@ def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
 
                 # Write results
                 for *xyxy, conf, cls in reversed(det):
+                    # if test_pic_level:
+                    pred_one.append(names[int(cls)].split("-")[0])
                     if save_txt:  # Write to file
                         xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
                         line = (cls, *xywh, conf) if save_conf else (cls, *xywh)  # label format
                         with open(txt_path + '.txt', 'a') as f:
                             f.write(('%g ' * len(line)).rstrip() % line + '\n')
-
+                    if save_xml:
+                        try:
+                            img0 = cv2.imread(path)
+                            he, we, _ = img0.shape
+                            writer = Writer(save_path, we, he)
+                            writer.addObject(names[int(cls)], int(xyxy[0]),int(xyxy[1]),int(xyxy[2]),int(xyxy[3]))
+                            xml_path = Path(save_path).with_suffix('.xml')
+                            xml_dir = xml_path.parent / "labels_xml"
+                            if not xml_dir.exists():
+                                xml_dir.mkdir()
+                            writer.save(str(xml_dir / xml_path.name))
+                        except Exception as e:
+                            print(str(e))
                     if save_img or save_crop or view_img:  # Add bbox to image
                         c = int(cls)  # integer class
                         label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
@@ -238,7 +278,14 @@ def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
             # Save results (image with detections)
             if save_img:
                 if dataset.mode == 'image':
-                    cv2.imwrite(save_path, im0)
+                    if pred_one == []:
+                        mid = "empty"
+                    else:
+                        mid = max(pred_one, key=pred_one.count)
+                    save_path_ = save_dir / mid
+                    if not save_path_.exists():
+                        save_path_.mkdir()
+                    cv2.imwrite(str(save_path_ / p.name), im0)
                 else:  # 'video' or 'stream'
                     if vid_path[i] != save_path:  # new video
                         vid_path[i] = save_path
@@ -253,7 +300,53 @@ def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
                             save_path += '.mp4'
                         vid_writer[i] = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
                     vid_writer[i].write(im0)
-
+        # print(set(label_one),set(pred_one))
+        if test_pic_level:
+            if pred_one == []:
+                pred_one.append("empty")
+            else:
+                pred_one = list(set(pred_one))
+                random.shuffle(pred_one)
+            if label_one == []:
+                label_one.append("empty")
+            else:
+                label_one = list(set(label_one))
+                random.shuffle(label_one)
+            match = 0
+            for i in pred_one:
+                if i in label_one:
+                    label_total.append(i)
+                    pred_total.append(i)
+                    match = 1
+                    break
+            if not match:
+                label_total.append(label_one[0])
+                pred_total.append(pred_one[0])
+    if test_pic_level:
+        class_result = classification_report(label_total, pred_total, zero_division=False, output_dict=True)
+        new_class_result = {}
+        for key, ite in class_result.items():
+            if key == "accuracy" or key == "weighted avg" or key == "macro avg":  # or key == "empty":
+                continue
+            if ite["support"] == 0:
+                continue
+            ite["precision"] = round(ite["precision"], 4)
+            ite["recall"] = round(ite["recall"], 4)
+            ite["f1-score"] = round(ite["f1-score"], 4)
+            new_class_result[key] = [ite["support"], ite["recall"], ite["precision"], ite["f1-score"]]
+        pd_data = pd.DataFrame(new_class_result, index=["support", "recall", "precision", "f1-score"])
+        pd_data = pd.DataFrame(pd_data.values.T, index=pd_data.columns, columns=pd_data.index)
+        pd_data = pd_data.sort_values(by="support", ascending=False)
+        print(pd_data)
+        need_brand = []
+        for i in pd_data.index.tolist():
+            if i=="empty": continue
+            need_brand.append(i)
+        # print(need_brand)
+        print("recall mean:",pd_data.loc[need_brand,:]["recall"].mean())
+        print("precision mean:", pd_data.loc[need_brand,:]["precision"].mean())
+        # print(pd_data.index.tolist())
+        # print(pd_data.loc[need_brand,:])
     # Print results
     t = tuple(x / seen * 1E3 for x in dt)  # speeds per image
     print(f'Speed: %.1fms pre-process, %.1fms inference, %.1fms NMS per image at shape {(1, 3, *imgsz)}' % t)
@@ -274,7 +367,9 @@ def parse_opt():
     parser.add_argument('--max-det', type=int, default=1000, help='maximum detections per image')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--view-img', action='store_true', help='show results')
+    parser.add_argument('--test-pic-level', default=None, action='store_true', help='save results to *.xml')
     parser.add_argument('--save-txt', action='store_true', help='save results to *.txt')
+    parser.add_argument('--save-xml', default=None, action='store_true', help='save results to *.xml')
     parser.add_argument('--save-conf', action='store_true', help='save confidences in --save-txt labels')
     parser.add_argument('--save-crop', action='store_true', help='save cropped prediction boxes')
     parser.add_argument('--nosave', action='store_true', help='do not save images/videos')

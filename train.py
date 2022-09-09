@@ -211,7 +211,6 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
         logging.warning('DP not recommended, instead use torch.distributed.run for best DDP Multi-GPU results.\n'
                         'See Multi-GPU Tutorial at https://github.com/ultralytics/yolov5/issues/475 to get started.')
         model = torch.nn.DataParallel(model)
-
     # SyncBatchNorm
     if opt.sync_bn and cuda and RANK != -1:
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model).to(device)
@@ -642,11 +641,12 @@ def run(**kwargs):
 
 
 if __name__ == "__main__":
-    opt = parse_opt()
+    # opt = parse_opt()
     # lp = LineProfiler()
     # lp.add_function(train)
-    # #lp.add_function(compute_loss)
+    # # #lp.add_function(compute_loss)
     # lp_wrapper = lp(main)
     # lp_wrapper(opt)
     # lp.print_stats()
+    opt = parse_opt()
     main(opt)

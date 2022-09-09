@@ -163,6 +163,7 @@ class LoadImages:
             files = sorted(glob.glob(p, recursive=True))  # glob
         elif os.path.isdir(p):
             files = sorted(glob.glob(os.path.join(p, '*.*')))  # dir
+            # files = sorted([str(i) for i in Path(p).rglob('*.*')])  # dir
         elif os.path.isfile(p):
             files = [p]  # files
         else:
@@ -216,6 +217,9 @@ class LoadImages:
             # Read image
             self.count += 1
             img0 = cv2.imread(path)  # BGR
+            if img0 is None:
+                print("Image is None!!!!!!!!!!!!!!!!!!!!!!")
+                return None, None, None, None
             assert img0 is not None, 'Image Not Found ' + path
             print(f'image {self.count}/{self.nf} {path}: ', end='')
 

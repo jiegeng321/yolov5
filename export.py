@@ -48,6 +48,8 @@ from utils.torch_utils import select_device
 
 from autoencoder import yolo_encoder
 
+print(torch.cuda.is_available())
+
 def export_torchscript(model, im, file, optimize, prefix=colorstr('TorchScript:')):
     # YOLOv5 TorchScript model export
     try:
@@ -73,10 +75,11 @@ def export_onnx(model, im, file, opset, train, dynamic, simplify, prefix=colorst
             #print(k)
             #encoder:yolo_model.model.0.conv.conv.weight
             #brand:model.0.conv.weight
-            if k == "yolo_model.model.0.conv.conv.weight":
-                model.state_dict()[k] /= 255.0
-                print("first layer's weight has changed!")
-                break
+            #model.0.conv.conv.weight
+            # if k == "model.0.conv.conv.weight":
+            model.state_dict()[k] /= 255.0
+            print("first layer's weight has changed!")
+            break
             #print(k,v[0,0,0,:])
             #break
         # for k ,v in model.state_dict().items():
